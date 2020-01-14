@@ -1,8 +1,9 @@
-import { LeafBlot, Scope } from 'parchment';
+import { ContainerBlot, LeafBlot, Scope } from 'parchment';
 import clone from 'clone';
 import equal from 'deep-equal';
 import Emitter from './emitter';
 import logger from './logger';
+import { SHADOW_SELECTIONCHANGE, getRange } from './shadow-selection-polyfill';
 
 const debug = logger('quill:selection');
 
@@ -20,14 +21,15 @@ class Selection {
     this.composing = false;
     this.mouseDown = false;
     this.root = this.scroll.domNode;
+    this.rootDocument = (this.root.getRootNode ? this.root.getRootNode() : document);
     this.cursor = this.scroll.create('cursor', this);
     // savedRange is last non-null range
     this.savedRange = new Range(0, 0);
     this.lastRange = this.savedRange;
     this.handleComposition();
     this.handleDragging();
-    this.emitter.listenDOM('selectionchange', document, () => {
-      if (!this.mouseDown && !this.composing) {
+    this.emitter.listenDOM(SHADOW_SELECTIONCHANGE, document, () => {
+      if (!this.mouseDown) {
         setTimeout(this.update.bind(this, Emitter.sources.USER), 1);
       }
     });
@@ -68,10 +70,8 @@ class Selection {
   handleComposition() {
     this.root.addEventListener('compositionstart', () => {
       this.composing = true;
-      this.scroll.batchStart();
     });
     this.root.addEventListener('compositionend', () => {
-      this.scroll.batchEnd();
       this.composing = false;
       if (this.cursor.parent) {
         const range = this.cursor.restore();
@@ -175,9 +175,7 @@ class Selection {
   }
 
   getNativeRange() {
-    const selection = document.getSelection();
-    if (selection == null || selection.rangeCount <= 0) return null;
-    const nativeRange = selection.getRangeAt(0);
+    let nativeRange = getRange(this.rootDocument);
     if (nativeRange == null) return null;
     const range = this.normalizeNative(nativeRange);
     debug.info('getNativeRange', range);
@@ -192,10 +190,7 @@ class Selection {
   }
 
   hasFocus() {
-    return (
-      document.activeElement === this.root ||
-      contains(this.root, document.activeElement)
-    );
+    return this.rootDocument.activeElement === this.root;
   }
 
   normalizedToRange(range) {
@@ -210,10 +205,10 @@ class Selection {
       if (offset === 0) {
         return index;
       }
-      if (blot instanceof LeafBlot) {
-        return index + blot.index(node, offset);
+      if (blot instanceof ContainerBlot) {
+        return index + blot.length();
       }
-      return index + blot.length();
+      return index + blot.index(node, offset);
     });
     const end = Math.min(Math.max(...indexes), this.scroll.length() - 1);
     const start = Math.min(end, ...indexes);
@@ -316,7 +311,7 @@ class Selection {
     ) {
       return;
     }
-    const selection = document.getSelection();
+    let selection = typeof this.rootDocument.getSelection === 'function' ? this.rootDocument.getSelection() : document.getSelection();
     if (selection == null) return;
     if (startNode != null) {
       if (!this.hasFocus()) this.root.focus();
@@ -382,15 +377,7 @@ class Selection {
         nativeRange.native.collapsed &&
         nativeRange.start.node !== this.cursor.textNode
       ) {
-        const range = this.cursor.restore();
-        if (range) {
-          this.setNativeRange(
-            range.startNode,
-            range.startOffset,
-            range.endNode,
-            range.endOffset,
-          );
-        }
+        this.cursor.restore();
       }
       const args = [
         Emitter.events.SELECTION_CHANGE,
