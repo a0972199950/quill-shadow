@@ -1,3 +1,5 @@
+此套件為基於quill@2.0修改而來，加入對Shadow DOM的支持
+
 Note: This branch and README covers the upcoming 2.0 release. View [1.x docs here](https://github.com/quilljs/quill/tree/1.3.6).
 
 <h1 align="center">
